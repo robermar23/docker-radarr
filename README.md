@@ -240,3 +240,6 @@ Once registered you can define the dockerfile to use with `-f Dockerfile.aarch64
 * **17.04.17:** - Switch to using inhouse mono baseimage, adds python also.
 * **13.04.17:** - Switch to official mono repository.
 * **10.01.17:** - Initial Release.
+
+docker build -t robermar2/radarr:armv7 . -f Dockerfile.armhf
+docker push robermar2/radarr:armv7

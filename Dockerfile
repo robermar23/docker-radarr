@@ -7,6 +7,14 @@ ARG RADARR_RELEASE
 LABEL build_version="Linuxserver.io version:- ${VERSION} Build-date:- ${BUILD_DATE}"
 LABEL maintainer="aptalca"
 
+
+#CIFS for mounting windows shared
+RUN \
+	echo '**** install cifs ****' && \
+	apt-get update && \
+	apt-get install -y \
+		cifs-utils
+
 # environment settings
 ARG DEBIAN_FRONTEND="noninteractive"
 ENV XDG_CONFIG_HOME="/config/xdg"
@@ -40,6 +48,9 @@ RUN \
 # add local files
 COPY /root /
 
+# add mount configuration files, if any
+COPY /mount-config /mount-config/
+
 # ports and volumes
 EXPOSE 7878
-VOLUME /config
+VOLUME /config:rw

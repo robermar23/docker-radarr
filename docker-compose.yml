@@ -1,0 +1,20 @@
+version: "2"
+services:
+  radarr:
+    image: robermar2/radarr
+    container_name: radarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/New_York
+      - UMASK_SET=022 #optional
+    volumes:
+      - ./run/config:/config
+      - ./run/downloads:/downloads
+    ports:
+      - 7878:7878
+    restart: unless-stopped
+    cap_add:
+      - SYS_ADMIN
+      - SYSLOG
+      - DAC_READ_SEARCH
