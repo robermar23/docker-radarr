@@ -1,0 +1,19 @@
+#!/usr/bin/with-contenv bash
+
+if [ -f /mount-config/win-credentials.ini ]; then
+  if [ ! -d /mnt/remote-movies ]; then
+    echo 'Create directory /mnt/remote-movies'
+    mkdir /mnt/remote-movies
+  fi
+
+  if [ ! -d /mnt/remote-movies2 ]; then
+    echo 'Create directory /mnt/remote-movies2'
+    mkdir /mnt/remote-movies2
+  fi
+
+  echo 'mounting /mnt/remote-movies'
+  mount -v -t cifs -o noperm,credentials=/mount-config/win-credentials.ini //192.168.68.132/Plex /mnt/remote-movies
+
+  echo 'mounting /mnt/remote-movies2'
+  mount -v -t cifs -o noperm,credentials=/mount-config/win-credentials.ini //192.168.68.132/Movies2 /mnt/remote-movies2
+fi
