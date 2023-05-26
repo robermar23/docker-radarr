@@ -16,6 +16,7 @@ pipeline {
     GITHUB_TOKEN=credentials('498b4638-2d02-4ce5-832d-8a57d01d97ab')
     GITLAB_TOKEN=credentials('b6f0f1dd-6952-4cf6-95d1-9c06380283f0')
     GITLAB_NAMESPACE=credentials('gitlab-namespace-id')
+    SCARF_TOKEN=credentials('scarf_api_key')
     BUILD_VERSION_ARG = 'RADARR_RELEASE'
     LS_USER = 'linuxserver'
     LS_REPO = 'docker-radarr'
@@ -23,7 +24,7 @@ pipeline {
     DOCKERHUB_IMAGE = 'linuxserver/radarr'
     DEV_DOCKERHUB_IMAGE = 'lsiodev/radarr'
     PR_DOCKERHUB_IMAGE = 'lspipepr/radarr'
-    DIST_IMAGE = 'ubuntu'
+    DIST_IMAGE = 'alpine'
     MULTIARCH='true'
     CI='true'
     CI_WEB='true'
@@ -32,16 +33,17 @@ pipeline {
     CI_DELAY='120'
     CI_DOCKERENV='TZ=US/Pacific'
     CI_AUTH='user:password'
-    CI_WEBPATH=''
+    CI_WEBPATH='/system/status'
   }
   stages {
     // Setup all the basic environment variables needed for the build
     stage("Set ENV Variables base"){
       steps{
+        sh '''docker pull quay.io/skopeo/stable:v1 || : '''
         script{
           env.EXIT_STATUS = ''
           env.LS_RELEASE = sh(
-            script: '''docker run --rm ghcr.io/linuxserver/alexeiled-skopeo sh -c 'skopeo inspect docker://docker.io/'${DOCKERHUB_IMAGE}':latest 2>/dev/null' | jq -r '.Labels.build_version' | awk '{print $3}' | grep '\\-ls' || : ''',
+            script: '''docker run --rm quay.io/skopeo/stable:v1 inspect docker://ghcr.io/${LS_USER}/${CONTAINER_NAME}:latest 2>/dev/null | jq -r '.Labels.build_version' | awk '{print $3}' | grep '\\-ls' || : ''',
             returnStdout: true).trim()
           env.LS_RELEASE_NOTES = sh(
             script: '''cat readme-vars.yml | awk -F \\" '/date: "[0-9][0-9].[0-9][0-9].[0-9][0-9]:/ {print $4;exit;}' | sed -E ':a;N;$!ba;s/\\r{0,1}\\n/\\\\n/g' ''',
@@ -55,7 +57,7 @@ pipeline {
           env.CODE_URL = 'https://github.com/' + env.LS_USER + '/' + env.LS_REPO + '/commit/' + env.GIT_COMMIT
           env.DOCKERHUB_LINK = 'https://hub.docker.com/r/' + env.DOCKERHUB_IMAGE + '/tags/'
           env.PULL_REQUEST = env.CHANGE_ID
-          env.TEMPLATED_FILES = 'Jenkinsfile README.md LICENSE ./.github/CONTRIBUTING.md ./.github/FUNDING.yml ./.github/ISSUE_TEMPLATE/config.yml ./.github/ISSUE_TEMPLATE/issue.bug.md ./.github/ISSUE_TEMPLATE/issue.feature.md ./.github/PULL_REQUEST_TEMPLATE.md ./.github/workflows/external_trigger_scheduler.yml ./.github/workflows/greetings.yml ./.github/workflows/package_trigger_scheduler.yml ./.github/workflows/stale.yml ./.github/workflows/external_trigger.yml ./.github/workflows/package_trigger.yml ./root/donate.txt'
+          env.TEMPLATED_FILES = 'Jenkinsfile README.md LICENSE .editorconfig ./.github/CONTRIBUTING.md ./.github/FUNDING.yml ./.github/ISSUE_TEMPLATE/config.yml ./.github/ISSUE_TEMPLATE/issue.bug.yml ./.github/ISSUE_TEMPLATE/issue.feature.yml ./.github/PULL_REQUEST_TEMPLATE.md ./.github/workflows/external_trigger_scheduler.yml ./.github/workflows/greetings.yml ./.github/workflows/package_trigger_scheduler.yml ./.github/workflows/call_issue_pr_tracker.yml ./.github/workflows/call_issues_cron.yml ./.github/workflows/permissions.yml ./.github/workflows/external_trigger.yml ./.github/workflows/package_trigger.yml ./root/donate.txt'
         }
         script{
           env.LS_RELEASE_NUMBER = sh(
@@ -103,7 +105,7 @@ pipeline {
       steps{
         script{
           env.EXT_RELEASE = sh(
-            script: ''' curl -sL https://radarr.servarr.com/v1/update/master/changes?os=linux | jq -r '.[0].version' ''',
+            script: ''' curl -sL https://radarr.servarr.com/v1/update/master/changes?runtime=netcore%26os=linuxmusl | jq -r '.[0].version' ''',
             returnStdout: true).trim()
             env.RELEASE_LINK = 'custom_command'
         }
@@ -116,6 +118,30 @@ pipeline {
           env.EXT_RELEASE_CLEAN = sh(
             script: '''echo ${EXT_RELEASE} | sed 's/[~,%@+;:/]//g' ''',
             returnStdout: true).trim()
+
+          def semver = env.EXT_RELEASE_CLEAN =~ /(\d+)\.(\d+)\.(\d+)/
+          if (semver.find()) {
+            env.SEMVER = "${semver[0][1]}.${semver[0][2]}.${semver[0][3]}"
+          } else {
+            semver = env.EXT_RELEASE_CLEAN =~ /(\d+)\.(\d+)(?:\.(\d+))?(.*)/
+            if (semver.find()) {
+              if (semver[0][3]) {
+                env.SEMVER = "${semver[0][1]}.${semver[0][2]}.${semver[0][3]}"
+              } else if (!semver[0][3] && !semver[0][4]) {
+                env.SEMVER = "${semver[0][1]}.${semver[0][2]}.${(new Date()).format('YYYYMMdd')}"
+              }
+            }
+          }
+
+          if (env.SEMVER != null) {
+            if (BRANCH_NAME != "master" && BRANCH_NAME != "main") {
+              env.SEMVER = "${env.SEMVER}-${BRANCH_NAME}"
+            }
+            println("SEMVER: ${env.SEMVER}")
+          } else {
+            println("No SEMVER detected")
+          }
+
         }
       }
     }
@@ -130,6 +156,7 @@ pipeline {
           env.IMAGE = env.DOCKERHUB_IMAGE
           env.GITHUBIMAGE = 'ghcr.io/' + env.LS_USER + '/' + env.CONTAINER_NAME
           env.GITLABIMAGE = 'registry.gitlab.com/linuxserver.io/' + env.LS_REPO + '/' + env.CONTAINER_NAME
+          env.QUAYIMAGE = 'quay.io/linuxserver.io/' + env.CONTAINER_NAME
           if (env.MULTIARCH == 'true') {
             env.CI_TAGS = 'amd64-' + env.EXT_RELEASE_CLEAN + '-ls' + env.LS_TAG_NUMBER + '|arm32v7-' + env.EXT_RELEASE_CLEAN + '-ls' + env.LS_TAG_NUMBER + '|arm64v8-' + env.EXT_RELEASE_CLEAN + '-ls' + env.LS_TAG_NUMBER
           } else {
@@ -152,6 +179,7 @@ pipeline {
           env.IMAGE = env.DEV_DOCKERHUB_IMAGE
           env.GITHUBIMAGE = 'ghcr.io/' + env.LS_USER + '/lsiodev-' + env.CONTAINER_NAME
           env.GITLABIMAGE = 'registry.gitlab.com/linuxserver.io/' + env.LS_REPO + '/lsiodev-' + env.CONTAINER_NAME
+          env.QUAYIMAGE = 'quay.io/linuxserver.io/lsiodev-' + env.CONTAINER_NAME
           if (env.MULTIARCH == 'true') {
             env.CI_TAGS = 'amd64-' + env.EXT_RELEASE_CLEAN + '-pkg-' + env.PACKAGE_TAG + '-dev-' + env.COMMIT_SHA + '|arm32v7-' + env.EXT_RELEASE_CLEAN + '-pkg-' + env.PACKAGE_TAG + '-dev-' + env.COMMIT_SHA + '|arm64v8-' + env.EXT_RELEASE_CLEAN + '-pkg-' + env.PACKAGE_TAG + '-dev-' + env.COMMIT_SHA
           } else {
@@ -174,6 +202,7 @@ pipeline {
           env.IMAGE = env.PR_DOCKERHUB_IMAGE
           env.GITHUBIMAGE = 'ghcr.io/' + env.LS_USER + '/lspipepr-' + env.CONTAINER_NAME
           env.GITLABIMAGE = 'registry.gitlab.com/linuxserver.io/' + env.LS_REPO + '/lspipepr-' + env.CONTAINER_NAME
+          env.QUAYIMAGE = 'quay.io/linuxserver.io/lspipepr-' + env.CONTAINER_NAME
           if (env.MULTIARCH == 'true') {
             env.CI_TAGS = 'amd64-' + env.EXT_RELEASE_CLEAN + '-pkg-' + env.PACKAGE_TAG + '-pr-' + env.PULL_REQUEST + '|arm32v7-' + env.EXT_RELEASE_CLEAN + '-pkg-' + env.PACKAGE_TAG + '-pr-' + env.PULL_REQUEST + '|arm64v8-' + env.EXT_RELEASE_CLEAN + '-pkg-' + env.PACKAGE_TAG + '-pr-' + env.PULL_REQUEST
           } else {
@@ -200,19 +229,16 @@ pipeline {
           script{
             env.SHELLCHECK_URL = 'https://ci-tests.linuxserver.io/' + env.IMAGE + '/' + env.META_TAG + '/shellcheck-result.xml'
           }
-          sh '''curl -sL https://raw.githubusercontent.com/linuxserver/docker-shellcheck/master/checkrun.sh | /bin/bash'''
+          sh '''curl -sL https://raw.githubusercontent.com/linuxserver/docker-jenkins-builder/master/checkrun.sh | /bin/bash'''
           sh '''#! /bin/bash
-                set -e
-                docker pull ghcr.io/linuxserver/lsiodev-spaces-file-upload:latest
                 docker run --rm \
-                -e DESTINATION=\"${IMAGE}/${META_TAG}/shellcheck-result.xml\" \
-                -e FILE_NAME="shellcheck-result.xml" \
-                -e MIMETYPE="text/xml" \
-                -v ${WORKSPACE}:/mnt \
-                -e SECRET_KEY=\"${S3_SECRET}\" \
-                -e ACCESS_KEY=\"${S3_KEY}\" \
-                -t ghcr.io/linuxserver/lsiodev-spaces-file-upload:latest \
-                python /upload.py'''
+                  -v ${WORKSPACE}:/mnt \
+                  -e AWS_ACCESS_KEY_ID=\"${S3_KEY}\" \
+                  -e AWS_SECRET_ACCESS_KEY=\"${S3_SECRET}\" \
+                  ghcr.io/linuxserver/baseimage-alpine:3.17 s6-envdir -fn -- /var/run/s6/container_environment /bin/bash -c "\
+                    apk add --no-cache py3-pip && \
+                    pip install s3cmd && \
+                    s3cmd put --no-preserve --acl-public -m text/xml /mnt/shellcheck-result.xml s3://ci-tests.linuxserver.io/${IMAGE}/${META_TAG}/shellcheck-result.xml" || :'''
         }
       }
     }
@@ -249,7 +275,7 @@ pipeline {
                 echo "Jenkinsfile is up to date."
               fi
               # Stage 2 - Delete old templates
-              OLD_TEMPLATES=".github/ISSUE_TEMPLATE.md"
+              OLD_TEMPLATES=".github/ISSUE_TEMPLATE.md .github/ISSUE_TEMPLATE/issue.bug.md .github/ISSUE_TEMPLATE/issue.feature.md .github/workflows/call_invalid_helper.yml .github/workflows/stale.yml"
               for i in ${OLD_TEMPLATES}; do
                 if [[ -f "${i}" ]]; then
                   TEMPLATES_TO_DELETE="${i} ${TEMPLATES_TO_DELETE}"
@@ -260,14 +286,13 @@ pipeline {
                 git clone https://github.com/${LS_USER}/${LS_REPO}.git ${TEMPDIR}/repo/${LS_REPO}
                 cd ${TEMPDIR}/repo/${LS_REPO}
                 git checkout -f master
-                cd ${TEMPDIR}/docker-${CONTAINER_NAME}
                 for i in ${TEMPLATES_TO_DELETE}; do
                   git rm "${i}"
                 done
                 git commit -m 'Bot Updating Templated Files'
                 git push https://LinuxServer-CI:${GITHUB_TOKEN}@github.com/${LS_USER}/${LS_REPO}.git --all
                 echo "true" > /tmp/${COMMIT_SHA}-${BUILD_NUMBER}
-                echo "Deleting old templates"
+                echo "Deleting old and deprecated templates"
                 rm -Rf ${TEMPDIR}
                 exit 0
               else
@@ -316,9 +341,11 @@ pipeline {
               if [[ ("${BRANCH_NAME}" == "master") || ("${BRANCH_NAME}" == "main") ]] && [[ (! -f ${TEMPDIR}/unraid/templates/unraid/${CONTAINER_NAME}.xml) || ("$(md5sum ${TEMPDIR}/unraid/templates/unraid/${CONTAINER_NAME}.xml | awk '{ print $1 }')" != "$(md5sum ${TEMPDIR}/docker-${CONTAINER_NAME}/.jenkins-external/${CONTAINER_NAME}.xml | awk '{ print $1 }')") ]]; then
                 cd ${TEMPDIR}/unraid/templates/
                 if grep -wq "${CONTAINER_NAME}" ${TEMPDIR}/unraid/templates/unraid/ignore.list; then
-                  echo "Image is on the ignore list, removing Unraid template"
-                  git rm unraid/${CONTAINER_NAME}.xml || :
-                  git commit -m 'Bot Removing Deprecated Unraid Template' || :
+                  echo "Image is on the ignore list, marking Unraid template as deprecated"
+                  cp ${TEMPDIR}/docker-${CONTAINER_NAME}/.jenkins-external/${CONTAINER_NAME}.xml ${TEMPDIR}/unraid/templates/unraid/
+                  git add -u unraid/${CONTAINER_NAME}.xml
+                  git mv unraid/${CONTAINER_NAME}.xml unraid/deprecated/${CONTAINER_NAME}.xml || :
+                  git commit -m 'Bot Moving Deprecated Unraid Template' || :
                 else
                   cp ${TEMPDIR}/docker-${CONTAINER_NAME}/.jenkins-external/${CONTAINER_NAME}.xml ${TEMPDIR}/unraid/templates/unraid/
                   git add unraid/${CONTAINER_NAME}.xml
@@ -350,6 +377,26 @@ pipeline {
         }
       }
     }
+    // If this is a master build check the S6 service file perms
+    stage("Check S6 Service file Permissions"){
+      when {
+        branch "master"
+        environment name: 'CHANGE_ID', value: ''
+        environment name: 'EXIT_STATUS', value: ''
+      }
+      steps {
+        script{
+          sh '''#! /bin/bash
+            WRONG_PERM=$(find ./  -path "./.git" -prune -o \\( -name "run" -o -name "finish" -o -name "check" \\) -not -perm -u=x,g=x,o=x -print)
+            if [[ -n "${WRONG_PERM}" ]]; then
+              echo "The following S6 service files are missing the executable bit; canceling the faulty build: ${WRONG_PERM}"
+              exit 1
+            else
+              echo "S6 service file perms look good."
+            fi '''
+        }
+      }
+    }
     /* #######################
            GitLab Mirroring
        ####################### */
@@ -370,18 +417,51 @@ pipeline {
              "visibility":"public"}' '''
       } 
     }
+    /* #######################
+           Scarf.sh package registry
+       ####################### */
+    // Add package to Scarf.sh and set permissions
+    stage("Scarf.sh package registry"){
+      when {
+        branch "master"
+        environment name: 'EXIT_STATUS', value: ''
+      }
+      steps{
+        sh '''#! /bin/bash
+              set -e
+              PACKAGE_UUID=$(curl -X GET -H "Authorization: Bearer ${SCARF_TOKEN}" https://scarf.sh/api/v1/organizations/linuxserver-ci/packages | jq -r '.[] | select(.name=="linuxserver/radarr") | .uuid')
+              if [ -z "${PACKAGE_UUID}" ]; then
+                echo "Adding package to Scarf.sh"
+                curl -sX POST https://scarf.sh/api/v1/organizations/linuxserver-ci/packages \
+                  -H "Authorization: Bearer ${SCARF_TOKEN}" \
+                  -H "Content-Type: application/json" \
+                  -d '{"name":"linuxserver/radarr",\
+                       "shortDescription":"example description",\
+                       "libraryType":"docker",\
+                       "website":"https://github.com/linuxserver/docker-radarr",\
+                       "backendUrl":"https://ghcr.io/linuxserver/radarr",\
+                       "publicUrl":"https://lscr.io/linuxserver/radarr"}' || :
+              else
+                echo "Package already exists on Scarf.sh"
+              fi
+           '''
+      } 
+    }
     /* ###############
        Build Container
        ############### */
     // Build Docker container for push to LS Repo
     stage('Build-Single') {
       when {
-        environment name: 'MULTIARCH', value: 'false'
+        expression {
+          env.MULTIARCH == 'false' || params.PACKAGE_CHECK == 'true'
+        }
         environment name: 'EXIT_STATUS', value: ''
       }
       steps {
         echo "Running on node: ${NODE_NAME}"
-        sh "docker build \
+        sh "sed -r -i 's|(^FROM .*)|\\1\\n\\nENV LSIO_FIRST_PARTY=true|g' Dockerfile"
+        sh "docker buildx build \
           --label \"org.opencontainers.image.created=${GITHUB_DATE}\" \
           --label \"org.opencontainers.image.authors=linuxserver.io\" \
           --label \"org.opencontainers.image.url=https://github.com/linuxserver/docker-radarr/packages\" \
@@ -394,21 +474,25 @@ pipeline {
           --label \"org.opencontainers.image.ref.name=${COMMIT_SHA}\" \
           --label \"org.opencontainers.image.title=Radarr\" \
           --label \"org.opencontainers.image.description=[Radarr](https://github.com/Radarr/Radarr) - A fork of Sonarr to work with movies à la Couchpotato.  \" \
-          --no-cache --pull -t ${IMAGE}:${META_TAG} \
+          --no-cache --pull -t ${IMAGE}:${META_TAG} --platform=linux/amd64 \
           --build-arg ${BUILD_VERSION_ARG}=${EXT_RELEASE} --build-arg VERSION=\"${VERSION_TAG}\" --build-arg BUILD_DATE=${GITHUB_DATE} ."
       }
     }
     // Build MultiArch Docker containers for push to LS Repo
     stage('Build-Multi') {
       when {
-        environment name: 'MULTIARCH', value: 'true'
+        allOf {
+          environment name: 'MULTIARCH', value: 'true'
+          expression { params.PACKAGE_CHECK == 'false' }
+        }
         environment name: 'EXIT_STATUS', value: ''
       }
       parallel {
         stage('Build X86') {
           steps {
             echo "Running on node: ${NODE_NAME}"
-            sh "docker build \
+            sh "sed -r -i 's|(^FROM .*)|\\1\\n\\nENV LSIO_FIRST_PARTY=true|g' Dockerfile"
+            sh "docker buildx build \
               --label \"org.opencontainers.image.created=${GITHUB_DATE}\" \
               --label \"org.opencontainers.image.authors=linuxserver.io\" \
               --label \"org.opencontainers.image.url=https://github.com/linuxserver/docker-radarr/packages\" \
@@ -421,7 +505,7 @@ pipeline {
               --label \"org.opencontainers.image.ref.name=${COMMIT_SHA}\" \
               --label \"org.opencontainers.image.title=Radarr\" \
               --label \"org.opencontainers.image.description=[Radarr](https://github.com/Radarr/Radarr) - A fork of Sonarr to work with movies à la Couchpotato.  \" \
-              --no-cache --pull -t ${IMAGE}:amd64-${META_TAG} \
+              --no-cache --pull -t ${IMAGE}:amd64-${META_TAG} --platform=linux/amd64 \
               --build-arg ${BUILD_VERSION_ARG}=${EXT_RELEASE} --build-arg VERSION=\"${VERSION_TAG}\" --build-arg BUILD_DATE=${GITHUB_DATE} ."
           }
         }
@@ -435,7 +519,8 @@ pipeline {
             sh '''#! /bin/bash
                   echo $GITHUB_TOKEN | docker login ghcr.io -u LinuxServer-CI --password-stdin
                '''
-            sh "docker build \
+            sh "sed -r -i 's|(^FROM .*)|\\1\\n\\nENV LSIO_FIRST_PARTY=true|g' Dockerfile.armhf"
+            sh "docker buildx build \
               --label \"org.opencontainers.image.created=${GITHUB_DATE}\" \
               --label \"org.opencontainers.image.authors=linuxserver.io\" \
               --label \"org.opencontainers.image.url=https://github.com/linuxserver/docker-radarr/packages\" \
@@ -448,7 +533,7 @@ pipeline {
               --label \"org.opencontainers.image.ref.name=${COMMIT_SHA}\" \
               --label \"org.opencontainers.image.title=Radarr\" \
               --label \"org.opencontainers.image.description=[Radarr](https://github.com/Radarr/Radarr) - A fork of Sonarr to work with movies à la Couchpotato.  \" \
-              --no-cache --pull -f Dockerfile.armhf -t ${IMAGE}:arm32v7-${META_TAG} \
+              --no-cache --pull -f Dockerfile.armhf -t ${IMAGE}:arm32v7-${META_TAG} --platform=linux/arm/v7 \
               --build-arg ${BUILD_VERSION_ARG}=${EXT_RELEASE} --build-arg VERSION=\"${VERSION_TAG}\" --build-arg BUILD_DATE=${GITHUB_DATE} ."
             sh "docker tag ${IMAGE}:arm32v7-${META_TAG} ghcr.io/linuxserver/lsiodev-buildcache:arm32v7-${COMMIT_SHA}-${BUILD_NUMBER}"
             retry(5) {
@@ -469,7 +554,8 @@ pipeline {
             sh '''#! /bin/bash
                   echo $GITHUB_TOKEN | docker login ghcr.io -u LinuxServer-CI --password-stdin
                '''
-            sh "docker build \
+            sh "sed -r -i 's|(^FROM .*)|\\1\\n\\nENV LSIO_FIRST_PARTY=true|g' Dockerfile.aarch64"
+            sh "docker buildx build \
               --label \"org.opencontainers.image.created=${GITHUB_DATE}\" \
               --label \"org.opencontainers.image.authors=linuxserver.io\" \
               --label \"org.opencontainers.image.url=https://github.com/linuxserver/docker-radarr/packages\" \
@@ -482,7 +568,7 @@ pipeline {
               --label \"org.opencontainers.image.ref.name=${COMMIT_SHA}\" \
               --label \"org.opencontainers.image.title=Radarr\" \
               --label \"org.opencontainers.image.description=[Radarr](https://github.com/Radarr/Radarr) - A fork of Sonarr to work with movies à la Couchpotato.  \" \
-              --no-cache --pull -f Dockerfile.aarch64 -t ${IMAGE}:arm64v8-${META_TAG} \
+              --no-cache --pull -f Dockerfile.aarch64 -t ${IMAGE}:arm64v8-${META_TAG} --platform=linux/arm64 \
               --build-arg ${BUILD_VERSION_ARG}=${EXT_RELEASE} --build-arg VERSION=\"${VERSION_TAG}\" --build-arg BUILD_DATE=${GITHUB_DATE} ."
             sh "docker tag ${IMAGE}:arm64v8-${META_TAG} ghcr.io/linuxserver/lsiodev-buildcache:arm64v8-${COMMIT_SHA}-${BUILD_NUMBER}"
             retry(5) {
@@ -506,22 +592,17 @@ pipeline {
         sh '''#! /bin/bash
               set -e
               TEMPDIR=$(mktemp -d)
-              if [ "${MULTIARCH}" == "true" ]; then
+              if [ "${MULTIARCH}" == "true" ] && [ "${PACKAGE_CHECK}" == "false" ]; then
                 LOCAL_CONTAINER=${IMAGE}:amd64-${META_TAG}
               else
                 LOCAL_CONTAINER=${IMAGE}:${META_TAG}
               fi
-              if [ "${DIST_IMAGE}" == "alpine" ]; then
-                docker run --rm --entrypoint '/bin/sh' -v ${TEMPDIR}:/tmp ${LOCAL_CONTAINER} -c '\
-                  apk info -v > /tmp/package_versions.txt && \
-                  sort -o /tmp/package_versions.txt  /tmp/package_versions.txt && \
-                  chmod 777 /tmp/package_versions.txt'
-              elif [ "${DIST_IMAGE}" == "ubuntu" ]; then
-                docker run --rm --entrypoint '/bin/sh' -v ${TEMPDIR}:/tmp ${LOCAL_CONTAINER} -c '\
-                  apt list -qq --installed | sed "s#/.*now ##g" | cut -d" " -f1 > /tmp/package_versions.txt && \
-                  sort -o /tmp/package_versions.txt  /tmp/package_versions.txt && \
-                  chmod 777 /tmp/package_versions.txt'
-              fi
+              touch ${TEMPDIR}/package_versions.txt
+              docker run --rm \
+                -v /var/run/docker.sock:/var/run/docker.sock:ro \
+                -v ${TEMPDIR}:/tmp \
+                ghcr.io/anchore/syft:latest \
+                ${LOCAL_CONTAINER} -o table=/tmp/package_versions.txt
               NEW_PACKAGE_TAG=$(md5sum ${TEMPDIR}/package_versions.txt | cut -c1-8 )
               echo "Package tag sha from current packages in buit container is ${NEW_PACKAGE_TAG} comparing to old ${PACKAGE_TAG} from github"
               if [ "${NEW_PACKAGE_TAG}" != "${PACKAGE_TAG}" ]; then
@@ -558,7 +639,7 @@ pipeline {
       steps {
         sh '''#! /bin/bash
               echo "Packages were updated. Cleaning up the image and exiting."
-              if [ "${MULTIARCH}" == "true" ]; then
+              if [ "${MULTIARCH}" == "true" ] && [ "${PACKAGE_CHECK}" == "false" ]; then
                 docker rmi ${IMAGE}:amd64-${META_TAG}
               else
                 docker rmi ${IMAGE}:${META_TAG}
@@ -582,7 +663,7 @@ pipeline {
       steps {
         sh '''#! /bin/bash
               echo "There are no package updates. Cleaning up the image and exiting."
-              if [ "${MULTIARCH}" == "true" ]; then
+              if [ "${MULTIARCH}" == "true" ] && [ "${PACKAGE_CHECK}" == "false" ]; then
                 docker rmi ${IMAGE}:amd64-${META_TAG}
               else
                 docker rmi ${IMAGE}:${META_TAG}
@@ -608,6 +689,7 @@ pipeline {
         ]) {
           script{
             env.CI_URL = 'https://ci-tests.linuxserver.io/' + env.IMAGE + '/' + env.META_TAG + '/index.html'
+            env.CI_JSON_URL = 'https://ci-tests.linuxserver.io/' + env.IMAGE + '/' + env.META_TAG + '/report.json'
           }
           sh '''#! /bin/bash
                 set -e
@@ -634,10 +716,8 @@ pipeline {
                 -e WEB_SCREENSHOT=\"${CI_WEB}\" \
                 -e WEB_AUTH=\"${CI_AUTH}\" \
                 -e WEB_PATH=\"${CI_WEBPATH}\" \
-                -e DO_REGION="ams3" \
-                -e DO_BUCKET="lsio-ci" \
                 -t ghcr.io/linuxserver/ci:latest \
-                python /ci/ci.py'''
+                python3 test_build.py'''
         }
       }
     }
@@ -657,6 +737,12 @@ pipeline {
             credentialsId: '3f9ba4d5-100d-45b0-a3c4-633fd6061207',
             usernameVariable: 'DOCKERUSER',
             passwordVariable: 'DOCKERPASS'
+          ],
+          [
+            $class: 'UsernamePasswordMultiBinding',
+            credentialsId: 'Quay.io-Robot',
+            usernameVariable: 'QUAYUSER',
+            passwordVariable: 'QUAYPASS'
           ]
         ]) {
           retry(5) {
@@ -665,22 +751,32 @@ pipeline {
                   echo $DOCKERPASS | docker login -u $DOCKERUSER --password-stdin
                   echo $GITHUB_TOKEN | docker login ghcr.io -u LinuxServer-CI --password-stdin
                   echo $GITLAB_TOKEN | docker login registry.gitlab.com -u LinuxServer.io --password-stdin
-                  for PUSHIMAGE in "${GITHUBIMAGE}" "${GITLABIMAGE}" "${IMAGE}"; do
+                  echo $QUAYPASS | docker login quay.io -u $QUAYUSER --password-stdin
+                  for PUSHIMAGE in "${GITHUBIMAGE}" "${GITLABIMAGE}" "${QUAYIMAGE}" "${IMAGE}"; do
                     docker tag ${IMAGE}:${META_TAG} ${PUSHIMAGE}:${META_TAG}
                     docker tag ${PUSHIMAGE}:${META_TAG} ${PUSHIMAGE}:latest
                     docker tag ${PUSHIMAGE}:${META_TAG} ${PUSHIMAGE}:${EXT_RELEASE_TAG}
+                    if [ -n "${SEMVER}" ]; then
+                      docker tag ${PUSHIMAGE}:${META_TAG} ${PUSHIMAGE}:${SEMVER}
+                    fi
                     docker push ${PUSHIMAGE}:latest
                     docker push ${PUSHIMAGE}:${META_TAG}
                     docker push ${PUSHIMAGE}:${EXT_RELEASE_TAG}
+                    if [ -n "${SEMVER}" ]; then
+                     docker push ${PUSHIMAGE}:${SEMVER}
+                    fi
                   done
                '''
           }
           sh '''#! /bin/bash
-                for DELETEIMAGE in "${GITHUBIMAGE}" "${GITLABIMAGE}" "${IMAGE}"; do
+                for DELETEIMAGE in "${GITHUBIMAGE}" "${GITLABIMAGE}" "${QUAYIMAGE}" "${IMAGE}"; do
                   docker rmi \
                   ${DELETEIMAGE}:${META_TAG} \
                   ${DELETEIMAGE}:${EXT_RELEASE_TAG} \
                   ${DELETEIMAGE}:latest || :
+                  if [ -n "${SEMVER}" ]; then
+                    docker rmi ${DELETEIMAGE}:${SEMVER} || :
+                  fi
                 done
              '''
         }
@@ -699,6 +795,12 @@ pipeline {
             credentialsId: '3f9ba4d5-100d-45b0-a3c4-633fd6061207',
             usernameVariable: 'DOCKERUSER',
             passwordVariable: 'DOCKERPASS'
+          ],
+          [
+            $class: 'UsernamePasswordMultiBinding',
+            credentialsId: 'Quay.io-Robot',
+            usernameVariable: 'QUAYUSER',
+            passwordVariable: 'QUAYPASS'
           ]
         ]) {
           retry(5) {
@@ -707,31 +809,42 @@ pipeline {
                   echo $DOCKERPASS | docker login -u $DOCKERUSER --password-stdin
                   echo $GITHUB_TOKEN | docker login ghcr.io -u LinuxServer-CI --password-stdin
                   echo $GITLAB_TOKEN | docker login registry.gitlab.com -u LinuxServer.io --password-stdin
+                  echo $QUAYPASS | docker login quay.io -u $QUAYUSER --password-stdin
                   if [ "${CI}" == "false" ]; then
                     docker pull ghcr.io/linuxserver/lsiodev-buildcache:arm32v7-${COMMIT_SHA}-${BUILD_NUMBER}
-                    docker pull ghcr.io/linuxserver/lsiodev-buildcache:arm64v8-${COMMIT_SHA}-${BUILD_NUMBER}
                     docker tag ghcr.io/linuxserver/lsiodev-buildcache:arm32v7-${COMMIT_SHA}-${BUILD_NUMBER} ${IMAGE}:arm32v7-${META_TAG}
+                    docker pull ghcr.io/linuxserver/lsiodev-buildcache:arm64v8-${COMMIT_SHA}-${BUILD_NUMBER}
                     docker tag ghcr.io/linuxserver/lsiodev-buildcache:arm64v8-${COMMIT_SHA}-${BUILD_NUMBER} ${IMAGE}:arm64v8-${META_TAG}
                   fi
-                  for MANIFESTIMAGE in "${IMAGE}" "${GITLABIMAGE}" "${GITHUBIMAGE}"; do
+                  for MANIFESTIMAGE in "${IMAGE}" "${GITLABIMAGE}" "${GITHUBIMAGE}" "${QUAYIMAGE}"; do
                     docker tag ${IMAGE}:amd64-${META_TAG} ${MANIFESTIMAGE}:amd64-${META_TAG}
-                    docker tag ${IMAGE}:arm32v7-${META_TAG} ${MANIFESTIMAGE}:arm32v7-${META_TAG}
-                    docker tag ${IMAGE}:arm64v8-${META_TAG} ${MANIFESTIMAGE}:arm64v8-${META_TAG}
                     docker tag ${MANIFESTIMAGE}:amd64-${META_TAG} ${MANIFESTIMAGE}:amd64-latest
-                    docker tag ${MANIFESTIMAGE}:arm32v7-${META_TAG} ${MANIFESTIMAGE}:arm32v7-latest
-                    docker tag ${MANIFESTIMAGE}:arm64v8-${META_TAG} ${MANIFESTIMAGE}:arm64v8-latest
                     docker tag ${MANIFESTIMAGE}:amd64-${META_TAG} ${MANIFESTIMAGE}:amd64-${EXT_RELEASE_TAG}
+                    docker tag ${IMAGE}:arm32v7-${META_TAG} ${MANIFESTIMAGE}:arm32v7-${META_TAG}
+                    docker tag ${MANIFESTIMAGE}:arm32v7-${META_TAG} ${MANIFESTIMAGE}:arm32v7-latest
                     docker tag ${MANIFESTIMAGE}:arm32v7-${META_TAG} ${MANIFESTIMAGE}:arm32v7-${EXT_RELEASE_TAG}
+                    docker tag ${IMAGE}:arm64v8-${META_TAG} ${MANIFESTIMAGE}:arm64v8-${META_TAG}
+                    docker tag ${MANIFESTIMAGE}:arm64v8-${META_TAG} ${MANIFESTIMAGE}:arm64v8-latest
                     docker tag ${MANIFESTIMAGE}:arm64v8-${META_TAG} ${MANIFESTIMAGE}:arm64v8-${EXT_RELEASE_TAG}
+                    if [ -n "${SEMVER}" ]; then
+                      docker tag ${MANIFESTIMAGE}:amd64-${META_TAG} ${MANIFESTIMAGE}:amd64-${SEMVER}
+                      docker tag ${MANIFESTIMAGE}:arm32v7-${META_TAG} ${MANIFESTIMAGE}:arm32v7-${SEMVER}
+                      docker tag ${MANIFESTIMAGE}:arm64v8-${META_TAG} ${MANIFESTIMAGE}:arm64v8-${SEMVER}
+                    fi
                     docker push ${MANIFESTIMAGE}:amd64-${META_TAG}
-                    docker push ${MANIFESTIMAGE}:arm32v7-${META_TAG}
-                    docker push ${MANIFESTIMAGE}:arm64v8-${META_TAG}
-                    docker push ${MANIFESTIMAGE}:amd64-latest
-                    docker push ${MANIFESTIMAGE}:arm32v7-latest
-                    docker push ${MANIFESTIMAGE}:arm64v8-latest
                     docker push ${MANIFESTIMAGE}:amd64-${EXT_RELEASE_TAG}
+                    docker push ${MANIFESTIMAGE}:amd64-latest
+                    docker push ${MANIFESTIMAGE}:arm32v7-${META_TAG}
+                    docker push ${MANIFESTIMAGE}:arm32v7-latest
                     docker push ${MANIFESTIMAGE}:arm32v7-${EXT_RELEASE_TAG}
+                    docker push ${MANIFESTIMAGE}:arm64v8-${META_TAG}
+                    docker push ${MANIFESTIMAGE}:arm64v8-latest
                     docker push ${MANIFESTIMAGE}:arm64v8-${EXT_RELEASE_TAG}
+                    if [ -n "${SEMVER}" ]; then
+                      docker push ${MANIFESTIMAGE}:amd64-${SEMVER}
+                      docker push ${MANIFESTIMAGE}:arm32v7-${SEMVER}
+                      docker push ${MANIFESTIMAGE}:arm64v8-${SEMVER}
+                    fi
                     docker manifest push --purge ${MANIFESTIMAGE}:latest || :
                     docker manifest create ${MANIFESTIMAGE}:latest ${MANIFESTIMAGE}:amd64-latest ${MANIFESTIMAGE}:arm32v7-latest ${MANIFESTIMAGE}:arm64v8-latest
                     docker manifest annotate ${MANIFESTIMAGE}:latest ${MANIFESTIMAGE}:arm32v7-latest --os linux --arch arm
@@ -744,14 +857,23 @@ pipeline {
                     docker manifest create ${MANIFESTIMAGE}:${EXT_RELEASE_TAG} ${MANIFESTIMAGE}:amd64-${EXT_RELEASE_TAG} ${MANIFESTIMAGE}:arm32v7-${EXT_RELEASE_TAG} ${MANIFESTIMAGE}:arm64v8-${EXT_RELEASE_TAG}
                     docker manifest annotate ${MANIFESTIMAGE}:${EXT_RELEASE_TAG} ${MANIFESTIMAGE}:arm32v7-${EXT_RELEASE_TAG} --os linux --arch arm
                     docker manifest annotate ${MANIFESTIMAGE}:${EXT_RELEASE_TAG} ${MANIFESTIMAGE}:arm64v8-${EXT_RELEASE_TAG} --os linux --arch arm64 --variant v8
+                    if [ -n "${SEMVER}" ]; then
+                      docker manifest push --purge ${MANIFESTIMAGE}:${SEMVER} || :
+                      docker manifest create ${MANIFESTIMAGE}:${SEMVER} ${MANIFESTIMAGE}:amd64-${SEMVER} ${MANIFESTIMAGE}:arm32v7-${SEMVER} ${MANIFESTIMAGE}:arm64v8-${SEMVER}
+                      docker manifest annotate ${MANIFESTIMAGE}:${SEMVER} ${MANIFESTIMAGE}:arm32v7-${SEMVER} --os linux --arch arm
+                      docker manifest annotate ${MANIFESTIMAGE}:${SEMVER} ${MANIFESTIMAGE}:arm64v8-${SEMVER} --os linux --arch arm64 --variant v8
+                    fi
                     docker manifest push --purge ${MANIFESTIMAGE}:latest
                     docker manifest push --purge ${MANIFESTIMAGE}:${META_TAG} 
                     docker manifest push --purge ${MANIFESTIMAGE}:${EXT_RELEASE_TAG} 
+                    if [ -n "${SEMVER}" ]; then
+                      docker manifest push --purge ${MANIFESTIMAGE}:${SEMVER} 
+                    fi
                   done
                '''
           }
           sh '''#! /bin/bash
-                for DELETEIMAGE in "${GITHUBIMAGE}" "${GITLABIMAGE}" "${IMAGE}"; do
+                for DELETEIMAGE in "${GITHUBIMAGE}" "${GITLABIMAGE}" "${QUAYIMAGE}" "${IMAGE}"; do
                   docker rmi \
                   ${DELETEIMAGE}:amd64-${META_TAG} \
                   ${DELETEIMAGE}:amd64-latest \
@@ -762,6 +884,12 @@ pipeline {
                   ${DELETEIMAGE}:arm64v8-${META_TAG} \
                   ${DELETEIMAGE}:arm64v8-latest \
                   ${DELETEIMAGE}:arm64v8-${EXT_RELEASE_TAG} || :
+                  if [ -n "${SEMVER}" ]; then
+                    docker rmi \
+                    ${DELETEIMAGE}:amd64-${SEMVER} \
+                    ${DELETEIMAGE}:arm32v7-${SEMVER} \
+                    ${DELETEIMAGE}:arm64v8-${SEMVER} || :
+                  fi
                 done
                 docker rmi \
                 ghcr.io/linuxserver/lsiodev-buildcache:arm32v7-${COMMIT_SHA}-${BUILD_NUMBER} \
@@ -841,8 +969,67 @@ pipeline {
         environment name: 'EXIT_STATUS', value: ''
       }
       steps {
-        sh '''curl -H "Authorization: token ${GITHUB_TOKEN}" -X POST https://api.github.com/repos/${LS_USER}/${LS_REPO}/issues/${PULL_REQUEST}/comments \
-        -d '{"body": "I am a bot, here are the test results for this PR: \\n'${CI_URL}' \\n'${SHELLCHECK_URL}'"}' '''
+        sh '''#! /bin/bash
+            # Function to retrieve JSON data from URL
+            get_json() {
+              local url="$1"
+              local response=$(curl -s "$url")
+              if [ $? -ne 0 ]; then
+                echo "Failed to retrieve JSON data from $url"
+                return 1
+              fi
+              local json=$(echo "$response" | jq .)
+              if [ $? -ne 0 ]; then
+                echo "Failed to parse JSON data from $url"
+                return 1
+              fi
+              echo "$json"
+            }
+
+            build_table() {
+              local data="$1"
+
+              # Get the keys in the JSON data
+              local keys=$(echo "$data" | jq -r 'to_entries | map(.key) | .[]')
+
+              # Check if keys are empty
+              if [ -z "$keys" ]; then
+                echo "JSON report data does not contain any keys or the report does not exist."
+                return 1
+              fi
+
+              # Build table header
+              local header="| Tag | Passed |\\n| --- | --- |\\n"
+
+              # Loop through the JSON data to build the table rows
+              local rows=""
+              for build in $keys; do
+                local status=$(echo "$data" | jq -r ".[\\"$build\\"].test_success")
+                if [ "$status" = "true" ]; then
+                  status="✅"
+                else
+                  status="❌"
+                fi
+                local row="| "$build" | "$status" |\\n"
+                rows="${rows}${row}"
+              done
+
+              local table="${header}${rows}"
+              local escaped_table=$(echo "$table" | sed 's/\"/\\\\"/g')
+              echo "$escaped_table"
+            }
+
+            # Retrieve JSON data from URL
+            data=$(get_json "$CI_JSON_URL")
+            # Create table from JSON data
+            table=$(build_table "$data")
+            echo -e "$table"
+
+            curl -X POST -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/$LS_USER/$LS_REPO/issues/$PULL_REQUEST/comments" \
+              -d "{\\"body\\": \\"I am a bot, here are the test results for this PR: \\n${CI_URL}\\n${SHELLCHECK_URL}\\n${table}\\"}"'''
+
       }
     }
   }
@@ -856,12 +1043,12 @@ pipeline {
           sh 'echo "build aborted"'
         }
         else if (currentBuild.currentResult == "SUCCESS"){
-          sh ''' curl -X POST -H "Content-Type: application/json" --data '{"avatar_url": "https://wiki.jenkins-ci.org/download/attachments/2916393/headshot.png","embeds": [{"color": 1681177,\
+          sh ''' curl -X POST -H "Content-Type: application/json" --data '{"avatar_url": "https://raw.githubusercontent.com/linuxserver/docker-templates/master/linuxserver.io/img/jenkins-avatar.png","embeds": [{"color": 1681177,\
                  "description": "**Build:**  '${BUILD_NUMBER}'\\n**CI Results:**  '${CI_URL}'\\n**ShellCheck Results:**  '${SHELLCHECK_URL}'\\n**Status:**  Success\\n**Job:** '${RUN_DISPLAY_URL}'\\n**Change:** '${CODE_URL}'\\n**External Release:**: '${RELEASE_LINK}'\\n**DockerHub:** '${DOCKERHUB_LINK}'\\n"}],\
                  "username": "Jenkins"}' ${BUILDS_DISCORD} '''
         }
         else {
-          sh ''' curl -X POST -H "Content-Type: application/json" --data '{"avatar_url": "https://wiki.jenkins-ci.org/download/attachments/2916393/headshot.png","embeds": [{"color": 16711680,\
+          sh ''' curl -X POST -H "Content-Type: application/json" --data '{"avatar_url": "https://raw.githubusercontent.com/linuxserver/docker-templates/master/linuxserver.io/img/jenkins-avatar.png","embeds": [{"color": 16711680,\
                  "description": "**Build:**  '${BUILD_NUMBER}'\\n**CI Results:**  '${CI_URL}'\\n**ShellCheck Results:**  '${SHELLCHECK_URL}'\\n**Status:**  failure\\n**Job:** '${RUN_DISPLAY_URL}'\\n**Change:** '${CODE_URL}'\\n**External Release:**: '${RELEASE_LINK}'\\n**DockerHub:** '${DOCKERHUB_LINK}'\\n"}],\
                  "username": "Jenkins"}' ${BUILDS_DISCORD} '''
         }

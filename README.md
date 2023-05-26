@@ -29,11 +29,12 @@ Find us at:
 
 # [linuxserver/radarr](https://github.com/linuxserver/docker-radarr)
 
+[![Scarf.io pulls](https://scarf.sh/installs-badge/linuxserver-ci/linuxserver%2Fradarr?color=94398d&label-color=555555&logo-color=ffffff&style=for-the-badge&package-type=docker)](https://scarf.sh/gateway/linuxserver-ci/docker/linuxserver%2Fradarr)
 [![GitHub Stars](https://img.shields.io/github/stars/linuxserver/docker-radarr.svg?color=94398d&labelColor=555555&logoColor=ffffff&style=for-the-badge&logo=github)](https://github.com/linuxserver/docker-radarr)
 [![GitHub Release](https://img.shields.io/github/release/linuxserver/docker-radarr.svg?color=94398d&labelColor=555555&logoColor=ffffff&style=for-the-badge&logo=github)](https://github.com/linuxserver/docker-radarr/releases)
 [![GitHub Package Repository](https://img.shields.io/static/v1.svg?color=94398d&labelColor=555555&logoColor=ffffff&style=for-the-badge&label=linuxserver.io&message=GitHub%20Package&logo=github)](https://github.com/linuxserver/docker-radarr/packages)
 [![GitLab Container Registry](https://img.shields.io/static/v1.svg?color=94398d&labelColor=555555&logoColor=ffffff&style=for-the-badge&label=linuxserver.io&message=GitLab%20Registry&logo=gitlab)](https://gitlab.com/linuxserver.io/docker-radarr/container_registry)
-[![MicroBadger Layers](https://img.shields.io/microbadger/layers/linuxserver/radarr.svg?color=94398d&labelColor=555555&logoColor=ffffff&style=for-the-badge)](https://microbadger.com/images/linuxserver/radarr "Get your own version badge on microbadger.com")
+[![Quay.io](https://img.shields.io/static/v1.svg?color=94398d&labelColor=555555&logoColor=ffffff&style=for-the-badge&label=linuxserver.io&message=Quay.io)](https://quay.io/repository/linuxserver.io/radarr)
 [![Docker Pulls](https://img.shields.io/docker/pulls/linuxserver/radarr.svg?color=94398d&labelColor=555555&logoColor=ffffff&style=for-the-badge&label=pulls&logo=docker)](https://hub.docker.com/r/linuxserver/radarr)
 [![Docker Stars](https://img.shields.io/docker/stars/linuxserver/radarr.svg?color=94398d&labelColor=555555&logoColor=ffffff&style=for-the-badge&label=stars&logo=docker)](https://hub.docker.com/r/linuxserver/radarr)
 [![Jenkins Build](https://img.shields.io/jenkins/build?labelColor=555555&logoColor=ffffff&style=for-the-badge&jobUrl=https%3A%2F%2Fci.linuxserver.io%2Fjob%2FDocker-Pipeline-Builders%2Fjob%2Fdocker-radarr%2Fjob%2Fmaster%2F&logo=jenkins)](https://ci.linuxserver.io/job/Docker-Pipeline-Builders/job/docker-radarr/job/master/)
@@ -45,28 +46,27 @@ Find us at:
 
 ## Supported Architectures
 
-Our images support multiple architectures such as `x86-64`, `arm64` and `armhf`. We utilise the docker manifest for multi-platform awareness. More information is available from docker [here](https://github.com/docker/distribution/blob/master/docs/spec/manifest-v2-2.md#manifest-list) and our announcement [here](https://blog.linuxserver.io/2019/02/21/the-lsio-pipeline-project/).
+We utilise the docker manifest for multi-platform awareness. More information is available from docker [here](https://github.com/docker/distribution/blob/master/docs/spec/manifest-v2-2.md#manifest-list) and our announcement [here](https://blog.linuxserver.io/2019/02/21/the-lsio-pipeline-project/).
 
-Simply pulling `ghcr.io/linuxserver/radarr` should retrieve the correct image for your arch, but you can also pull specific arch images via tags.
+Simply pulling `lscr.io/linuxserver/radarr:latest` should retrieve the correct image for your arch, but you can also pull specific arch images via tags.
 
 The architectures supported by this image are:
 
-| Architecture | Tag |
-| :----: | --- |
-| x86-64 | amd64-latest |
-| arm64 | arm64v8-latest |
-| armhf | arm32v7-latest |
+| Architecture | Available | Tag |
+| :----: | :----: | ---- |
+| x86-64 | ✅ | amd64-\<version tag\> |
+| arm64 | ✅ | arm64v8-\<version tag\> |
+| armhf | ✅ | arm32v7-\<version tag\> |
 
 ## Version Tags
 
-This image provides various versions that are available via tags. `latest` tag usually provides the latest stable version. Others are considered under development and caution must be exercised when using them.
+This image provides various versions that are available via tags. Please read the descriptions carefully and exercise caution when using unstable or development tags.
 
-| Tag | Description |
-| :----: | --- |
-| latest | Stable Radarr releases |
-| develop | Radarr releases from their develop branch |
-| nightly | Radarr releases from their nightly branch |
-
+| Tag | Available | Description |
+| :----: | :----: |--- |
+| latest | ✅ | Stable Radarr releases |
+| develop | ✅ | Radarr releases from their develop branch |
+| nightly | ✅ | Radarr releases from their nightly branch |
 ## Application Setup
 
 Access the webui at `<your-ip>:7878`, for more information check out [Radarr](https://github.com/Radarr/Radarr).
@@ -77,27 +77,25 @@ We have set `/movies` and `/downloads` as ***optional paths***, this is because 
 
 Use the optional paths if you dont understand, or dont want hardlinks/atomic moves.
 
-The folks over at servarr.com wrote a good [write-up](https://wiki.servarr.com/Docker_Guide#Consistent_and_well_planned_paths) on how to get started with this.
+The folks over at servarr.com wrote a good [write-up](https://wiki.servarr.com/docker-guide#consistent-and-well-planned-paths) on how to get started with this.
 
 ## Usage
 
 Here are some example snippets to help you get started creating a container.
 
-### docker-compose ([recommended](https://docs.linuxserver.io/general/docker-compose))
-
-Compatible with docker-compose v2 schemas.
+### docker-compose (recommended, [click here for more info](https://docs.linuxserver.io/general/docker-compose))
 
 ```yaml
 ---
 version: "2.1"
 services:
   radarr:
-    image: ghcr.io/linuxserver/radarr
+    image: lscr.io/linuxserver/radarr:latest
     container_name: radarr
     environment:
       - PUID=1000
       - PGID=1000
-      - TZ=Europe/London
+      - TZ=Etc/UTC
     volumes:
       - /path/to/data:/config
       - /path/to/movies:/movies #optional
@@ -107,20 +105,21 @@ services:
     restart: unless-stopped
 ```
 
-### docker cli
+### docker cli ([click here for more info](https://docs.docker.com/engine/reference/commandline/cli/))
 
 ```bash
 docker run -d \
   --name=radarr \
   -e PUID=1000 \
   -e PGID=1000 \
-  -e TZ=Europe/London \
+  -e TZ=Etc/UTC \
   -p 7878:7878 \
   -v /path/to/data:/config \
   -v /path/to/movies:/movies `#optional` \
   -v /path/to/downloadclient-downloads:/downloads `#optional` \
   --restart unless-stopped \
-  ghcr.io/linuxserver/radarr
+  lscr.io/linuxserver/radarr:latest
+
 ```
 
 ## Parameters
@@ -132,7 +131,7 @@ Container images are configured using parameters passed at runtime (such as thos
 | `-p 7878` | The port for the Radarr webinterface |
 | `-e PUID=1000` | for UserID - see below for explanation |
 | `-e PGID=1000` | for GroupID - see below for explanation |
-| `-e TZ=Europe/London` | Specify a timezone to use EG Europe/London, this is required for Radarr |
+| `-e TZ=Etc/UTC` | specify a timezone to use, see this [list](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List). |
 | `-v /config` | Database and Radarr configs |
 | `-v /movies` | Location of Movie library on disk (See note in Application setup) |
 | `-v /downloads` | Location of download managers output directory (See note in Application setup) |
@@ -180,7 +179,7 @@ We publish various [Docker Mods](https://github.com/linuxserver/docker-mods) to 
 * container version number
   * `docker inspect -f '{{ index .Config.Labels "build_version" }}' radarr`
 * image version number
-  * `docker inspect -f '{{ index .Config.Labels "build_version" }}' ghcr.io/linuxserver/radarr`
+  * `docker inspect -f '{{ index .Config.Labels "build_version" }}' lscr.io/linuxserver/radarr:latest`
 
 ## Updating Info
 
@@ -198,7 +197,7 @@ Below are the instructions for updating containers:
 
 ### Via Docker Run
 
-* Update the image: `docker pull ghcr.io/linuxserver/radarr`
+* Update the image: `docker pull lscr.io/linuxserver/radarr:latest`
 * Stop the running container: `docker stop radarr`
 * Delete the container: `docker rm radarr`
 * Recreate a new container with the same docker run parameters as instructed above (if mapped correctly to a host folder, your `/config` folder and settings will be preserved)
@@ -233,7 +232,7 @@ cd docker-radarr
 docker build \
   --no-cache \
   --pull \
-  -t ghcr.io/linuxserver/radarr:latest .
+  -t lscr.io/linuxserver/radarr:latest .
 ```
 
 The ARM variants can be built on x86_64 hardware using `multiarch/qemu-user-static`
@@ -246,6 +245,12 @@ Once registered you can define the dockerfile to use with `-f Dockerfile.aarch64
 
 ## Versions
 
+* **17.01.23:** - Rebase master branch to Alpine 3.17, migrate to s6v3.
+* **06.06.22:** - Rebase master branch to Alpine 3.15.
+* **20.02.22:** - Rebase develop branch to Alpine.
+* **04.02.22:** - Rebase nightly branch to Alpine and deprecate nightly-alpine branch.
+* **27.12.21:** - Add nightly-alpine branch.
+* **17.10.21:** - Remove `UMASK_SET`.
 * **08.05.21:** - Make the paths clearer to the user
 * **17.01.21:** - Deprecate `UMASK_SET` in favor of UMASK in baseimage, see above for more information.
 * **11.30.20:** - Publish `develop` tag.
